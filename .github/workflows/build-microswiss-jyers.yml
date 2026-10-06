@@ -1,0 +1,66 @@
+name: Build Micro Swiss Jyers v2.0.1
+
+on:
+  push:
+    branches:
+      - microswiss-dd-jyers-v2.0.1
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install period-correct PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install "platformio==5.2.3"
+          pio --version
+
+      - name: Install patched UBL BLTouch configuration
+        run: |
+          cp "Configuration Files/E3V2 Templates/UBL-BLTouch-10x10/Configuration.h" Marlin/Configuration.h
+          cp "Configuration Files/E3V2 Templates/UBL-BLTouch-10x10/Configuration_adv.h" Marlin/Configuration_adv.h
+          echo "Verifying Micro Swiss / 4.2.7 settings:"
+          grep -E '^#define MOTHERBOARD|^#define X_MIN_POS|^#define Y_MIN_POS|^ *#define GRID_MAX_POINTS_X' Marlin/Configuration.h
+
+      - name: Build firmware
+        run: pio run -e STM32F103RET6_creality_maple
+
+      - name: Package firmware
+        run: |
+          mkdir -p firmware-output
+          BIN="$(find .pio/build/STM32F103RET6_creality_maple -maxdepth 1 -type f -name '*.bin' | head -n 1)"
+          test -n "$BIN"
+          cp "$BIN" "firmware-output/Ender3Pro_Jyers-v2.0.1_4.2.7_BLTouch_UBL10x10_MicroSwiss-DD.bin"
+          sha256sum firmware-output/*.bin | tee firmware-output/SHA256SUMS.txt
+          cat > firmware-output/FLASH-NOTES.txt <<'EOF'
+          Printer: Ender 3 Pro with Ender-3 V2 display
+          Board: Creality 4.2.7 silent board
+          Firmware base: JyersUI v2.0.1 (commit 02df365eb8b72ed131ab8526df86db2e276d19dc)
+          Leveling: UBL + BLTouch, 10x10 mesh
+          Micro Swiss changes:
+            X_MIN_POS = -5
+            Y_MIN_POS = -10
+
+          IMPORTANT AFTER INSTALLING THE HARDWARE / FLASHING:
+          - Do not reuse the old UBL mesh; generate a new mesh.
+          - Recalibrate BLTouch X/Y/Z probe offsets for the new carriage.
+          - Start Micro Swiss extruder calibration near E130, then perform a measured 100 mm E-step calibration.
+          - Do not assume the previous Z probe offset (-0.94) is still valid.
+          EOF
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ender3Pro-MicroSwiss-Jyers-v2.0.1
+          path: firmware-output/
+          if-no-files-found: error
+          retention-days: 30
